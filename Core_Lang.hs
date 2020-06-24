@@ -71,6 +71,7 @@ data Value = PrimVal PrimitiveValue
 -- |Represents the set of all LaLa runtime errors
 data ErrorType = UNDECLARED_VARIABLE
                | FUNCTION_EXPECTED
+               | INVALID_CONDITION_TYPE
                | INVALID_ARITY
                | PRIMOP_ERROR
                | INVALID_STORE_ACCESS deriving(Show) -- |Should not occur
@@ -81,4 +82,4 @@ data Error = Err { errType :: ErrorType
                  } deriving(Show)
 
 -- |Represents the result of an interpreted LaLa expression
-type Result = Either Error Value
+type Result = Either Error (Value,Store)

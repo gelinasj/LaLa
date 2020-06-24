@@ -33,13 +33,23 @@ getStoreValue location store = getValue location err store
 
 -- |Evaluates the given LaLa expression in the given environment with the given
 -- |store
-interpret :: Expression -> Environment -> Store -> (Result, Store)
-interpret (Var varName) env store = (result, store)
+interpret :: Expression -> Environment -> Store -> Result
+interpret (Var varName) env store = result
     where location = getEnvLocation varName env
+          getStoreValueCurried :: Location -> Either Error Value
           getStoreValueCurried = (`getStoreValue` store)
-          result = callIfNotError location getStoreValueCurried
-interpret (FuncExpr func) env store = (Right closure, store)
+          maybeValue = callIfNotError location getStoreValueCurried
+          result = callIfNotError maybeValue (\value -> Right (value, store))
+interpret (FuncExpr func) env store = Right (closure, store)
     where closure = Closure { env = env, func = func }
--- interpret (IfElse {condition = condition, ifTrue = ifTrue, ifFalse = ifFalse}) env store =
---     @TODO
-interpret (PrimExpr val) env store = (Right (PrimVal val), store)
+interpret (IfElse condition ifTrue ifFalse) env store =
+    callIfNotError maybeBool interpretIfElse
+    where maybeBool = interpret condition env store
+          interpretIfElse :: (Value, Store) -> Result
+          interpretIfElse ((PrimVal (PrimBool isTrue)),storeNew)
+              | isTrue = interpret ifTrue env storeNew
+              | otherwise = interpret ifFalse env storeNew
+          interpretIfElse (value, _) = Left err
+              where errorMessage = "Invalid condition type: " ++ (show value)
+                    err = Err INVALID_CONDITION_TYPE errorMessage
+interpret (PrimExpr val) env store = (Right (PrimVal val, store))
