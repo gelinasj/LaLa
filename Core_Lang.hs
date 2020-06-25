@@ -3,6 +3,7 @@ module Core_Lang
 , PrimitiveValue(..)
 , Store
 , Environment
+, Declaration(..)
 , Value(..)
 , ErrorType(..)
 , Error(..)
@@ -63,7 +64,8 @@ type Environment = [(String,Location)]
 -}
 
 -- |Represents a LaLa value
-data Value = PrimVal PrimitiveValue
+data Value = Thunk
+           | PrimVal PrimitiveValue
            | Closure { env :: Environment
                      , func :: Function
                      } deriving(Show)

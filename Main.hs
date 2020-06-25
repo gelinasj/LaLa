@@ -5,8 +5,10 @@ import Interpreter
 main :: IO ()
 main = do
     putStrLn (show (interpret
+                        (Let [(Decl "x" (PrimExpr (PrimBool True))),
+                             (Decl "y" (PrimExpr (PrimInt 1)))]
                         (IfElse
-                            (PrimExpr (PrimInt 1))
-                            (PrimExpr (PrimInt 2))
-                            (PrimExpr (PrimInt 3)))
+                            (Var "x")
+                            (Var "y")
+                            (PrimExpr (PrimInt 2))))
                         [] []))
