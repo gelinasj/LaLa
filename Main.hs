@@ -4,11 +4,31 @@ import Interpreter
 
 main :: IO ()
 main = do
-    putStrLn (show (interpret
-                        (Let [(Decl "1TrueElse0"
-                                    (FuncExpr (Func ["x"]
-                                        (IfElse (Var "x")
-                                            (PrimExpr (PrimInt 1))
-                                            (PrimExpr (PrimInt 0))))))]
-                            (Call (Var "1TrueElse0") [(PrimExpr (PrimBool True))]))
-                        [] []))
+    putStrLn (show (interpretWithPrelude
+                        (Let [(Decl "fact!"
+                                (FuncExpr (Func ["x"]
+                                    (IfElse (Call (Var "isZero") [(Var "x")])
+                                        (PrimExpr (PrimInt 1))
+                                        (Call (Var "*")
+                                            [(Var "x"),
+                                            (Call (Var "fact!")
+                                                [(Call (Var "+")
+                                                    [(PrimExpr (PrimInt (-1))),
+                                                    (Var "x")])])]))))),
+                            (Decl "isEven"
+                                (FuncExpr (Func ["x"]
+                                    (IfElse (Call (Var "isZero") [(Var "x")])
+                                        (PrimExpr (PrimBool True))
+                                        (Call (Var "isOdd")
+                                            [(Call (Var "+")
+                                                [(PrimExpr (PrimInt (-1))),
+                                                (Var "x")])]))))),
+                            (Decl "isOdd"
+                                (FuncExpr (Func ["x"]
+                                    (IfElse (Call (Var "isZero") [(Var "x")])
+                                        (PrimExpr (PrimBool False))
+                                        (Call (Var "isEven")
+                                            [(Call (Var "+")
+                                                [(PrimExpr (PrimInt (-1))),
+                                                (Var "x")])])))))]
+                            (Call (Var "isEven") [(Call (Var "fact!") [(PrimExpr (PrimInt 4))])]))))

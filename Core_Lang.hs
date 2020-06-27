@@ -2,6 +2,7 @@ module Core_Lang
 ( Expression(..)
 , PrimitiveValue(..)
 , Store
+, Primop(..)
 , Function(..)
 , Environment
 , Declaration(..)
@@ -46,6 +47,13 @@ data Expression = PrimExpr PrimitiveValue
                       , letBody :: Expression
                       } deriving(Show)
 
+-- |Represents a primitive opertation in LaLa
+data Primop = Primop { op :: ([Value] -> Either Error Value)
+                     }
+
+instance Show Primop where
+    show primop = "primop"
+
 {--------------------------
     LaLa Runtime Constructs
 -}
@@ -66,6 +74,7 @@ type Environment = [(String,Location)]
 
 -- |Represents a LaLa value
 data Value = Thunk
+           | PrimopVal Primop
            | PrimVal PrimitiveValue
            | Closure { env :: Environment
                      , func :: Function

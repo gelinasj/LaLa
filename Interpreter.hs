@@ -1,5 +1,5 @@
 module Interpreter
-( interpret
+( interpretWithPrelude
 ) where
 --import Data.String.Interpolate (i)
 import Core_Lang
@@ -55,6 +55,13 @@ updateVar var val env store =
           updateStoreLoc :: Location -> Either Error Store
           updateStoreLoc loc = Right ((loc, val):store)
 
+initializeAndUpdateVars :: [(String, Value)] -> Environment -> Store -> Either Error (Environment, Store)
+initializeAndUpdateVars varValMap env store = callIfNotError maybeStoreNewNew (\storeNewNew -> Right (envNew, storeNewNew))
+    where (envNew, storeNew) = initializeVars env store (map (\varValPair -> case varValPair of (var, _) -> var) varValMap)
+          maybeStoreNewNew = foldl updateVars (Right storeNew) varValMap
+          updateVars :: Either Error Store -> (String, Value) -> Either Error Store
+          updateVars maybeStoreNewNew (var, val) = callIfNotError maybeStoreNewNew (updateVar var val envNew)
+
 -- | Evaluates the rhs of each declaration and updates its value in the store
 declareVars :: Environment -> Store -> [Declaration] -> Either Error Store
 declareVars env store decls = foldl declareVar (Right store) decls
@@ -101,12 +108,10 @@ interpret (Call callee args) env store = callIfNotError maybeVals interpretAfter
                     arityMatch = expectedArity == actualArity
                     errorMessage = "Arity mismatch: expected " ++ (show expectedArity) ++ " got " ++ (show actualArity)
                     interpretFuncBody :: Expression -> [(String,Value)] -> Environment -> Store -> Result
-                    interpretFuncBody body varValMap env store = callIfNotError maybestoreNewNew (interpret body envNew)
-                        where (envNew, storeNew) = initializeVars env store vars
-                              vars = map (\varValPair -> case varValPair of (var,_) -> var) varValMap
-                              maybestoreNewNew = foldl updateStore (Right storeNew) varValMap
-                              updateStore :: Either Error Store -> (String, Value) -> Either Error Store
-                              updateStore maybeStore (var, val) = callIfNotError maybeStore (updateVar var val envNew)
+                    interpretFuncBody body varValMap env store = callIfNotError maybeNewState (\newState -> case newState of (envNew, storeNew) -> interpret body envNew storeNew)
+                        where maybeNewState = initializeAndUpdateVars varValMap env store
+          interpretAfterEval ((PrimopVal (Primop op)), argVals, store) = callIfNotError maybeVal (\val -> Right (val, store))
+              where maybeVal = op argVals
           interpretAfterEval (val, argVals, store) = Left (Err FUNCTION_EXPECTED errorMessage)
               where errorMessage = "Function closure expected got: " ++ show val
 interpret (IfElse condition ifTrue ifFalse) env store =
@@ -126,3 +131,29 @@ interpret (Let decls letBody) env store =
           maybeStoreNew = declareVars envNew storeTmp decls
           interpretLetBody :: Store -> Result
           interpretLetBody = interpret letBody envNew
+
+addPrimop :: [Value] -> Either Error Value
+addPrimop ((PrimVal (PrimInt v_1)):(PrimVal (PrimInt v_2)):[]) =
+    Right (PrimVal (PrimInt (v_1 + v_2)))
+addPrimop invalid_vals = Left (Err PRIMOP_ERROR ("Invalid params to + prmiop: " ++ (show invalid_vals)))
+
+multiplyPrimop :: [Value] -> Either Error Value
+multiplyPrimop ((PrimVal (PrimInt v_1)):(PrimVal (PrimInt v_2)):[]) =
+    Right (PrimVal (PrimInt (v_1 * v_2)))
+multiplyPrimop invalid_vals = Left (Err PRIMOP_ERROR ("Invalid params to * prmiop: " ++ (show invalid_vals)))
+
+isZeroPrimop :: [Value] -> Either Error Value
+isZeroPrimop ((PrimVal (PrimInt v)):[]) =
+    Right (PrimVal (PrimBool (v == 0)))
+isZeroPrimop invalid_vals = Left (Err PRIMOP_ERROR ("Invalid params to isZero prmiop: " ++ (show invalid_vals)))
+
+prelude = [("+", PrimopVal (Primop addPrimop)),
+           ("*", PrimopVal (Primop multiplyPrimop)),
+           ("isZero", PrimopVal (Primop isZeroPrimop))]
+
+-- |Evaluates the given LaLa expression in the given environment with the given
+-- |store with an initialized standard prelude
+interpretWithPrelude :: Expression -> Either Error Value
+interpretWithPrelude expr = callIfNotError maybeResult (\res -> case res of (val,store) -> Right val)
+    where maybeInitialState = initializeAndUpdateVars prelude [] []
+          maybeResult = callIfNotError maybeInitialState (\intialState -> case intialState of (envNew, storeNew) -> interpret expr envNew storeNew)

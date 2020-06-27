@@ -45,6 +45,7 @@ A `T` (type) is one of:
 * Arithmetic: `+`, `-`, `*`, `/`, `^`, `%`
 * Boolean: `&&`, `||`, `!`
 * `print`
+* Generic `==`
 
 
 ## Notes:
