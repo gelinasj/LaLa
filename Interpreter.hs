@@ -41,29 +41,31 @@ allocLoc store = ((newLoc, Thunk):store, newLoc)
 
 -- |Adds the variables to the current scope (env) and allocates a location in
 -- |the store for each var with a Thunk value
-initializeVars :: Environment -> Store -> [Declaration] -> (Environment, Store)
-initializeVars env store decls = foldl initializeVar (env, store) decls
-    where initializeVar :: (Environment, Store) -> Declaration -> (Environment, Store)
-          initializeVar (env, store) (Decl var _) = (envNew, storeNew)
+initializeVars :: Environment -> Store -> [String] -> (Environment, Store)
+initializeVars env store vars = foldl initializeVar (env, store) vars
+    where initializeVar :: (Environment, Store) -> String -> (Environment, Store)
+          initializeVar (env, store) var = (envNew, storeNew)
               where (storeNew,loc) = allocLoc store
                     envNew = (var,loc):env
+
+updateVar :: String -> Value -> Environment -> Store -> Either Error Store
+updateVar var val env store =
+    callIfNotError maybeLoc updateStoreLoc
+    where maybeLoc = getEnvLocation var env
+          updateStoreLoc :: Location -> Either Error Store
+          updateStoreLoc loc = Right ((loc, val):store)
 
 -- | Evaluates the rhs of each declaration and updates its value in the store
 declareVars :: Environment -> Store -> [Declaration] -> Either Error Store
 declareVars env store decls = foldl declareVar (Right store) decls
     where declareVar :: Either Error Store -> Declaration -> Either Error Store
           declareVar maybeStore (Decl var rhs) =
-              callIfNotError maybeStore updateVar
-              where updateVar :: Store -> Either Error Store
-                    updateVar storeNew =
-                        callIfNotError maybeLoc updateStoreLoc
-                        where maybeLoc = getEnvLocation var env
-                              updateStoreLoc :: Location -> Either Error Store
-                              updateStoreLoc loc =
-                                  callIfNotError maybeVal updateStoreVal
-                                  where maybeVal = interpret rhs env storeNew
-                                        updateStoreVal :: (Value, Store) -> Either Error Store
-                                        updateStoreVal (val, storeNewNew) = Right ((loc, val):storeNewNew)
+              callIfNotError maybeStore updateVarWrap
+              where updateVarWrap :: Store -> Either Error Store
+                    updateVarWrap storeNew = callIfNotError maybeVal updateVarWrapWrap
+                        where maybeVal = interpret rhs env storeNew
+                              updateVarWrapWrap :: (Value, Store) -> Either Error Store
+                              updateVarWrapWrap (rhsVal, storeNewNew) = updateVar var rhsVal env storeNewNew
 
 -- |Evaluates the given LaLa expression in the given environment with the given
 -- |store
@@ -80,27 +82,33 @@ interpret (FuncExpr func) env store = Right (closure, store)
 interpret (Call callee args) env store = callIfNotError maybeVals interpretAfterEval
     where maybeCalleeVal = interpret callee env store
           maybeVals = callIfNotError maybeCalleeVal interpretAll
-          interpretAll :: (Value, Store) -> Either Error (Value, [Values], Store)
-          interpretAll (val, storeNew) = foldr interpretArg (val, [], storeNew) args
-              where interpretArgFold :: Expr -> Either Error (Value, [Values], Store) -> Either Error (Value, [Values], Store)
+          interpretAll :: (Value, Store) -> Either Error (Value, [Value], Store)
+          interpretAll (val, storeNew) = foldr interpretArgFold (Right (val, [], storeNew)) args
+              where interpretArgFold :: Expression -> Either Error (Value, [Value], Store) -> Either Error (Value, [Value], Store)
                     interpretArgFold arg maybeVals = callIfNotError maybeVals interpretArg
-                    interpretArg :: (Value, [Values], Store) -> Either Error (Value, [Values], Store)
-                    interpretArg (val, vals, storeNewNew) = callIfNotError maybeArgVal generateRes
-                        where maybeArgVal = interpret arg env storeNewNew
-                              generateRes :: (Value, Store) -> Either Error (Value, [Values], Store)
-                              generateRes (argVal, storeNewNewNew) = Right (val, argVal:vals, storeNewNewNew)
-        interpretAfterEval :: (Value, [Values], Store) -> Result
-        interpretAfterEval ((Closure closureEnv (Func vars funcBody))), argVals, store)
-            | arityMatch = let envNew = (zip vars argVals) ++ env
-                               in interpret funcBody envNew store
-            | otherwise = Error INVALID_ARITY errorMessage
-            where expectedArity = (length vars)
-                  actualArity = (length args)
-                  arityMatch = expectedArity == actualArity
-                  errorMessage = "Arity mismatch: expected " ++ expectedArity ++ " got " ++ actualArity
-        interpretAfterEval (val, argVals, store) = Error FUNCTION_EXPECTED errorMessage
-            where errorMessage = "Function closure expected got: " ++ show val
-
+                        where interpretArg :: (Value, [Value], Store) -> Either Error (Value, [Value], Store)
+                              interpretArg (val, vals, storeNewNew) = callIfNotError maybeArgVal generateRes
+                                  where maybeArgVal = interpret arg env storeNewNew
+                                        generateRes :: (Value, Store) -> Either Error (Value, [Value], Store)
+                                        generateRes (argVal, storeNewNewNew) = Right (val, argVal:vals, storeNewNewNew)
+          interpretAfterEval :: (Value, [Value], Store) -> Result
+          interpretAfterEval ((Closure closureEnv (Func vars funcBody)), argVals, store)
+              | arityMatch = let varValMap = (zip vars argVals)
+                                 in interpretFuncBody funcBody varValMap env store
+              | otherwise = Left (Err INVALID_ARITY errorMessage)
+              where expectedArity = (length vars)
+                    actualArity = (length args)
+                    arityMatch = expectedArity == actualArity
+                    errorMessage = "Arity mismatch: expected " ++ (show expectedArity) ++ " got " ++ (show actualArity)
+                    interpretFuncBody :: Expression -> [(String,Value)] -> Environment -> Store -> Result
+                    interpretFuncBody body varValMap env store = callIfNotError maybestoreNewNew (interpret body envNew)
+                        where (envNew, storeNew) = initializeVars env store vars
+                              vars = map (\varValPair -> case varValPair of (var,_) -> var) varValMap
+                              maybestoreNewNew = foldl updateStore (Right storeNew) varValMap
+                              updateStore :: Either Error Store -> (String, Value) -> Either Error Store
+                              updateStore maybeStore (var, val) = callIfNotError maybeStore (updateVar var val envNew)
+          interpretAfterEval (val, argVals, store) = Left (Err FUNCTION_EXPECTED errorMessage)
+              where errorMessage = "Function closure expected got: " ++ show val
 interpret (IfElse condition ifTrue ifFalse) env store =
     callIfNotError maybeBool interpretIfElse
     where maybeBool = interpret condition env store
@@ -113,7 +121,8 @@ interpret (IfElse condition ifTrue ifFalse) env store =
                     err = Err INVALID_CONDITION_TYPE errorMessage
 interpret (Let decls letBody) env store =
     callIfNotError maybeStoreNew interpretLetBody
-    where (envNew, storeTmp) = initializeVars env store decls
+    where (envNew, storeTmp) = initializeVars env store vars
+          vars = map (\decl -> case decl of (Decl var _) -> var) decls
           maybeStoreNew = declareVars envNew storeTmp decls
           interpretLetBody :: Store -> Result
           interpretLetBody = interpret letBody envNew

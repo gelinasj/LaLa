@@ -2,6 +2,7 @@ module Core_Lang
 ( Expression(..)
 , PrimitiveValue(..)
 , Store
+, Function(..)
 , Environment
 , Declaration(..)
 , Value(..)
