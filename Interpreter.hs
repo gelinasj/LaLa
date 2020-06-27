@@ -77,7 +77,30 @@ interpret (Var varName) env store = result
           result = callIfNotError maybeValue (\value -> Right (value, store))
 interpret (FuncExpr func) env store = Right (closure, store)
     where closure = Closure { env = env, func = func }
---interpret (Call callee args) = @TODO
+interpret (Call callee args) env store = callIfNotError maybeVals interpretAfterEval
+    where maybeCalleeVal = interpret callee env store
+          maybeVals = callIfNotError maybeCalleeVal interpretAll
+          interpretAll :: (Value, Store) -> Either Error (Value, [Values], Store)
+          interpretAll (val, storeNew) = foldr interpretArg (val, [], storeNew) args
+              where interpretArgFold :: Expr -> Either Error (Value, [Values], Store) -> Either Error (Value, [Values], Store)
+                    interpretArgFold arg maybeVals = callIfNotError maybeVals interpretArg
+                    interpretArg :: (Value, [Values], Store) -> Either Error (Value, [Values], Store)
+                    interpretArg (val, vals, storeNewNew) = callIfNotError maybeArgVal generateRes
+                        where maybeArgVal = interpret arg env storeNewNew
+                              generateRes :: (Value, Store) -> Either Error (Value, [Values], Store)
+                              generateRes (argVal, storeNewNewNew) = Right (val, argVal:vals, storeNewNewNew)
+        interpretAfterEval :: (Value, [Values], Store) -> Result
+        interpretAfterEval ((Closure closureEnv (Func vars funcBody))), argVals, store)
+            | arityMatch = let envNew = (zip vars argVals) ++ env
+                               in interpret funcBody envNew store
+            | otherwise = Error INVALID_ARITY errorMessage
+            where expectedArity = (length vars)
+                  actualArity = (length args)
+                  arityMatch = expectedArity == actualArity
+                  errorMessage = "Arity mismatch: expected " ++ expectedArity ++ " got " ++ actualArity
+        interpretAfterEval (val, argVals, store) = Error FUNCTION_EXPECTED errorMessage
+            where errorMessage = "Function closure expected got: " ++ show val
+
 interpret (IfElse condition ifTrue ifFalse) env store =
     callIfNotError maybeBool interpretIfElse
     where maybeBool = interpret condition env store
